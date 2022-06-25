@@ -1,4 +1,4 @@
-﻿namespace Model;
+﻿namespace Model.Symbols;
 
 public interface IHasParent<T> { T Parent { get; set; } }
 

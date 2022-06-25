@@ -1,4 +1,4 @@
-﻿using Model;
+﻿using Model.Symbols;
 
 ISymbol a = new ISymbol.Class("name", "type", "scope", "line", new() { "file1", "file2" }) { Value = "value" };
 //IScope b = new IScope.Class("name", "type", "scope", "line", new() { "file1", "file2" }) { Value = "value" };
@@ -6,7 +6,7 @@ ISymbol a = new ISymbol.Class("name", "type", "scope", "line", new() { "file1", 
 IFoo foo = new IFoo.Class("name");
 IWhat what = new IWhat.Class("who", "okay");
 ;
-partial interface IFoo
+public partial interface IFoo
 {
     String Name { get; }
 }

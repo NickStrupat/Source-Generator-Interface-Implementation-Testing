@@ -62,11 +62,11 @@ class InterfaceImplementor : IIncrementalGenerator
 			}
 			
 			Indent ind = new();
-			var interfaceName = nts.Name;
+			var interfaceName = nts.ContainingNamespace.IsGlobalNamespace ? nts.ToString() : nts.ToString()[(nts.ContainingNamespace.ToString().Length + 1)..];
 			const String className = "Class";
 			if (!nts.ContainingNamespace.IsGlobalNamespace)
 				source.AppendLine($"namespace {nts.ContainingNamespace}\n{{{++ind}");
-			source.AppendLine($"{ind}public partial interface {interfaceName} \n{ind}{{");
+			source.AppendLine($"{ind}public partial interface {interfaceName}\n{ind}{{");
 			
 			source.AppendLine($"{++ind}public sealed class {className} : {interfaceName}\n{ind}{{");
 			var propertyDefinitions = propertyDetails.Select(x => $"public {x.type} {x.name} {x.accessors}");
