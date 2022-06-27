@@ -29,13 +29,13 @@ class InterfaceImplementor : IIncrementalGenerator
 		
 		foreach (var @interface in interfaces)
 		{
-			var nts = GetDeclaredSymbol<INamedTypeSymbol>(@interface, out var nullableContext);
+			var symbol = GetDeclaredSymbol<INamedTypeSymbol>(@interface, out var nullableContext);
 			var source = new StringBuilder(nullableContext.HasFlag(NullableContext.Enabled) ? "#nullable enable\n" : String.Empty);
 
 #pragma warning disable RS1024
-			var allPropertySymbols = nts
+			var allPropertySymbols = symbol
 				.GetMembers()
-				.Concat(nts.AllInterfaces.SelectMany(x => x.GetMembers()))
+				.Concat(symbol.AllInterfaces.SelectMany(x => x.GetMembers()))
 				.OfType<IPropertySymbol>()
 				.Distinct(
 					new GenericEqualityComparer<IPropertySymbol>(
@@ -44,42 +44,62 @@ class InterfaceImplementor : IIncrementalGenerator
 					)
 				);
 #pragma warning restore RS1024
-			var propertyDetails = new List<(String name, String type, String camelName, String accessors, Boolean ctorInitRequired)>();
-			foreach (var symbol in allPropertySymbols)
+			var propertyDetails = new List<(String name, String type, String camelName, String accessors, Boolean ctorInitRequired, Boolean hasParameterlessConstructor)>();
+			foreach (var propertySymbol in allPropertySymbols)
 			{
-				var property = symbol.DeclaringSyntaxReferences.Select(x => x.GetSyntax()).OfType<PropertyDeclarationSyntax>().Single();
+				var property = propertySymbol.DeclaringSyntaxReferences.Select(x => x.GetSyntax()).OfType<PropertyDeclarationSyntax>().Single();
 				var accessors = property.AccessorList!.Accessors.Select(x => x.Keyword.Kind()).ToList();
 				var getterOnly = accessors.Count() == 1 && accessors.Single() == SyntaxKind.GetKeyword;
-				var nonNullable = symbol.Type.NullableAnnotation == NullableAnnotation.NotAnnotated;
+				var nonNullable = propertySymbol.Type.NullableAnnotation == NullableAnnotation.NotAnnotated;
 				var ctorInitRequired = getterOnly || nonNullable;
+				// var isCollectionType = propertySymbol.Type.AllInterfaces.Any(x => x.Name == "ICollection");
+				var hasParameterlessConstructor =
+					propertySymbol.Type is {IsValueType: true} ||
+					propertySymbol.Type is INamedTypeSymbol nts && nts.Constructors.Any(x => x.Parameters.IsEmpty);
 				propertyDetails.Add((
-					symbol.Name,
-					symbol.Type.ToDisplayString(),
-					Char.ToLower(symbol.Name[0]) + symbol.Name[1..],
+					propertySymbol.Name,
+					propertySymbol.Type.ToDisplayString(),
+					Char.ToLower(propertySymbol.Name[0]) + propertySymbol.Name[1..],
 					property.AccessorList!.ToString(),
-					ctorInitRequired
+					ctorInitRequired,
+					hasParameterlessConstructor
 				));
 			}
 			
 			Indent ind = new();
-			var interfaceName = nts.ContainingNamespace.IsGlobalNamespace ? nts.ToString() : nts.ToString()[(nts.ContainingNamespace.ToString().Length + 1)..];
+			var interfaceName = symbol.ContainingNamespace.IsGlobalNamespace ? symbol.ToString() : symbol.ToString()[(symbol.ContainingNamespace.ToString().Length + 1)..];
 			const String className = "Class";
-			if (!nts.ContainingNamespace.IsGlobalNamespace)
-				source.AppendLine($"namespace {nts.ContainingNamespace}\n{{{++ind}");
+			if (!symbol.ContainingNamespace.IsGlobalNamespace)
+				source.AppendLine($"namespace {symbol.ContainingNamespace}\n{{{++ind}");
 			source.AppendLine($"{ind}public partial interface {interfaceName}\n{ind}{{");
 			
 			source.AppendLine($"{++ind}public sealed class {className} : {interfaceName}\n{ind}{{");
 			var propertyDefinitions = propertyDetails.Select(x => $"public {x.type} {x.name} {x.accessors}");
 			source.AppendLine($"{++ind}{String.Join($"\n{ind}", propertyDefinitions)}");
+			
+			// ctor with all properties that require assignment
 			var parameterDeclarations = propertyDetails.Where(x => x.ctorInitRequired).Select(x => $"{x.type} {x.camelName}");
 			source.AppendLine($"\n{ind}public {className}({String.Join(", ", parameterDeclarations)}) \n{ind}{{");
 			var parameterInitializations = propertyDetails.Where(x => x.ctorInitRequired).Select(x => $"{x.name} = {x.camelName};");
 			source.AppendLine($"{++ind}{String.Join($"\n{ind}", parameterInitializations)}");
-			source.AppendLine($"{--ind}}}\n{--ind}}}\n{--ind}}}");
-			if (!nts.ContainingNamespace.IsGlobalNamespace)
+			source.AppendLine($"{--ind}}}");
+			
+			// ctor with all properties that require assignment, less the ones that have a parameterless constructor (List<T>, value types, etc.)
+			var parameterDeclarations2 = propertyDetails.Where(x => x.ctorInitRequired && !x.hasParameterlessConstructor).Select(x => $"{x.type} {x.camelName}");
+			if (parameterDeclarations.Count() != parameterDeclarations2.Count())
+			{
+				source.AppendLine($"\n{ind}public {className}({String.Join(", ", parameterDeclarations2)}) \n{ind}{{");
+				++ind;
+				foreach (var (name, type, camelName, _, _, hasParameterlessConstructor) in propertyDetails.Where(x => x.ctorInitRequired))
+					source.AppendLine(hasParameterlessConstructor ? $"{ind}{name} = new {type}();" : $"{ind}{name} = {camelName};");
+				source.AppendLine($"{--ind}}}");
+			}
+			
+			source.AppendLine($"{--ind}}}\n{--ind}}}");
+			if (!symbol.ContainingNamespace.IsGlobalNamespace)
 				source.AppendLine($"{--ind}}}");
 			
-			context.AddSource(nts.ToDisplayString().Replace('<', '_').Replace('>', '_') + ".g.cs", source.ToString());
+			context.AddSource(symbol.ToDisplayString().Replace('<', '_').Replace('>', '_') + ".g.cs", source.ToString());
 		}
 		
 		TSymbol GetDeclaredSymbol<TSymbol>(SyntaxNode node, out NullableContext nc) where TSymbol : ISymbol
