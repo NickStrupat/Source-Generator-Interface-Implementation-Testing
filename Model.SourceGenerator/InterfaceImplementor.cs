@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Immutable;
 using System.Text;
 using Microsoft.CodeAnalysis;
@@ -44,7 +45,7 @@ class InterfaceImplementor : IIncrementalGenerator
 					)
 				);
 #pragma warning restore RS1024
-			var propertyDetails = new List<(String name, String type, String camelName, String accessors, Boolean ctorInitRequired, Boolean hasParameterlessConstructor)>();
+			var propertyDetails = new List<(String name, String type, String camelName, String accessors, Boolean ctorInitRequired, Boolean isConstructableWithoutArguments)>();
 			foreach (var propertySymbol in allPropertySymbols)
 			{
 				var property = propertySymbol.DeclaringSyntaxReferences.Select(x => x.GetSyntax()).OfType<PropertyDeclarationSyntax>().Single();
@@ -52,17 +53,18 @@ class InterfaceImplementor : IIncrementalGenerator
 				var getterOnly = accessors.Count() == 1 && accessors.Single() == SyntaxKind.GetKeyword;
 				var nonNullable = propertySymbol.Type.NullableAnnotation == NullableAnnotation.NotAnnotated;
 				var ctorInitRequired = getterOnly || nonNullable;
-				// var isCollectionType = propertySymbol.Type.AllInterfaces.Any(x => x.Name == "ICollection");
+				var isCollection = propertySymbol.Type.AllInterfaces.Any(x => x.ToString() == typeof(ICollection).FullName);
 				var hasParameterlessConstructor =
 					propertySymbol.Type is {IsValueType: true} ||
 					propertySymbol.Type is INamedTypeSymbol nts && nts.Constructors.Any(x => x.Parameters.IsEmpty);
+				var isConstructableWithoutArguments = isCollection && hasParameterlessConstructor;
 				propertyDetails.Add((
 					propertySymbol.Name,
 					propertySymbol.Type.ToDisplayString(),
 					Char.ToLower(propertySymbol.Name[0]) + propertySymbol.Name[1..],
 					property.AccessorList!.ToString(),
 					ctorInitRequired,
-					hasParameterlessConstructor
+					isConstructableWithoutArguments
 				));
 			}
 			
@@ -84,14 +86,14 @@ class InterfaceImplementor : IIncrementalGenerator
 			source.AppendLine($"{++ind}{String.Join($"\n{ind}", parameterInitializations)}");
 			source.AppendLine($"{--ind}}}");
 			
-			// ctor with all properties that require assignment, less the ones that have a parameterless constructor (List<T>, value types, etc.)
-			var parameterDeclarations2 = propertyDetails.Where(x => x.ctorInitRequired && !x.hasParameterlessConstructor).Select(x => $"{x.type} {x.camelName}");
+			// ctor with all properties that require assignment, less the ones that implement ICollection and have a parameterless constructor
+			var parameterDeclarations2 = propertyDetails.Where(x => x.ctorInitRequired && !x.isConstructableWithoutArguments).Select(x => $"{x.type} {x.camelName}");
 			if (parameterDeclarations.Count() != parameterDeclarations2.Count())
 			{
 				source.AppendLine($"\n{ind}public {className}({String.Join(", ", parameterDeclarations2)}) \n{ind}{{");
 				++ind;
-				foreach (var (name, type, camelName, _, _, hasParameterlessConstructor) in propertyDetails.Where(x => x.ctorInitRequired))
-					source.AppendLine(hasParameterlessConstructor ? $"{ind}{name} = new {type}();" : $"{ind}{name} = {camelName};");
+				foreach (var (name, type, camelName, _, _, isConstructableWithoutArguments) in propertyDetails.Where(x => x.ctorInitRequired))
+					source.AppendLine(isConstructableWithoutArguments ? $"{ind}{name} = new {type}();" : $"{ind}{name} = {camelName};");
 				source.AppendLine($"{--ind}}}");
 			}
 			

@@ -7,7 +7,7 @@ public partial interface ISymbol : IHasParent<ISymbol?>, IHasValue
 	String Name { get; set; }
 	String? Value { get; init; }
 	String Type { get; init; }
-	String Scope { get; }
+	Scope Scope { get; }
 	String Line { get; }
 	List<String> File { get; }
 }
@@ -21,3 +21,6 @@ public partial interface IScope<T> : ISymbol
 {
 	public T ScopeValue { get; }
 }
+
+
+public enum Scope { Lexical, Block, Global }
