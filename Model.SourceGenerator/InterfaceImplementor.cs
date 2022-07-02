@@ -6,11 +6,11 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 [Generator(LanguageNames.CSharp)]
-class InterfaceImplementor : IIncrementalGenerator
+public class InterfaceImplementor : IIncrementalGenerator
 {
 	public void Initialize(IncrementalGeneratorInitializationContext context)
 	{
-		//SpinWait.SpinUntil(() => System.Diagnostics.Debugger.IsAttached, TimeSpan.FromSeconds(5));
+		SpinWait.SpinUntil(() => System.Diagnostics.Debugger.IsAttached, TimeSpan.FromSeconds(5));
 
 		var partialAndNonGenericInterfaceDeclarations = context.SyntaxProvider
 			.CreateSyntaxProvider(
@@ -49,13 +49,13 @@ class InterfaceImplementor : IIncrementalGenerator
 			foreach (var propertySymbol in allPropertySymbols)
 			{
 				var property = propertySymbol.DeclaringSyntaxReferences.Select(x => x.GetSyntax()).OfType<PropertyDeclarationSyntax>().Single();
-				if (property.AccessorList is not null)
+				if (property.AccessorList == null)
 					continue;
-				var accessors = property.AccessorList!.Accessors.Select(x => x.Keyword.Kind()).ToList();
-				var getterOnly = accessors.Count() == 1 && accessors.Single() == SyntaxKind.GetKeyword;
+				var accessors = property.AccessorList.Accessors.Select(x => x.Keyword.Kind()).ToList();
+				var getterOnly = accessors.Count == 1 && accessors.Single() == SyntaxKind.GetKeyword;
 				var nonNullable = propertySymbol.Type.NullableAnnotation == NullableAnnotation.NotAnnotated;
 				var ctorInitRequired = getterOnly || nonNullable;
-				var isCollection = propertySymbol.Type.AllInterfaces.Any(x => x.ToString() == typeof(ICollection).FullName);
+				var isCollection = propertySymbol.Type.AllInterfaces.Any(x => x.ConstructedFrom.ToString() == "System.Collections.Generic.ICollection<T>");
 				var hasParameterlessConstructor =
 					propertySymbol.Type is {IsValueType: true} ||
 					propertySymbol.Type is INamedTypeSymbol nts && nts.Constructors.Any(x => x.Parameters.IsEmpty);
@@ -94,8 +94,8 @@ class InterfaceImplementor : IIncrementalGenerator
 			{
 				source.AppendLine($"\n{ind}public {className}({String.Join(", ", parameterDeclarations2)})\n{ind}{{");
 				++ind;
-				foreach (var (name, type, camelName, _, _, isConstructableWithoutArguments) in propertyDetails.Where(x => x.ctorInitRequired))
-					source.AppendLine(isConstructableWithoutArguments ? $"{ind}{name} = new {type}();" : $"{ind}{name} = {camelName};");
+				foreach (var x in propertyDetails.Where(x => x.ctorInitRequired))
+					source.AppendLine(x.isConstructableWithoutArguments ? $"{ind}{x.name} = new();" : $"{ind}{x.name} = {x.camelName};");
 				source.AppendLine($"{--ind}}}");
 			}
 			
