@@ -49,6 +49,8 @@ class InterfaceImplementor : IIncrementalGenerator
 			foreach (var propertySymbol in allPropertySymbols)
 			{
 				var property = propertySymbol.DeclaringSyntaxReferences.Select(x => x.GetSyntax()).OfType<PropertyDeclarationSyntax>().Single();
+				if (property.AccessorList is not null)
+					continue;
 				var accessors = property.AccessorList!.Accessors.Select(x => x.Keyword.Kind()).ToList();
 				var getterOnly = accessors.Count() == 1 && accessors.Single() == SyntaxKind.GetKeyword;
 				var nonNullable = propertySymbol.Type.NullableAnnotation == NullableAnnotation.NotAnnotated;
@@ -81,7 +83,7 @@ class InterfaceImplementor : IIncrementalGenerator
 			
 			// ctor with all properties that require assignment
 			var parameterDeclarations = propertyDetails.Where(x => x.ctorInitRequired).Select(x => $"{x.type} {x.camelName}");
-			source.AppendLine($"\n{ind}public {className}({String.Join(", ", parameterDeclarations)}) \n{ind}{{");
+			source.AppendLine($"\n{ind}public {className}({String.Join(", ", parameterDeclarations)})\n{ind}{{");
 			var parameterInitializations = propertyDetails.Where(x => x.ctorInitRequired).Select(x => $"{x.name} = {x.camelName};");
 			source.AppendLine($"{++ind}{String.Join($"\n{ind}", parameterInitializations)}");
 			source.AppendLine($"{--ind}}}");
@@ -90,7 +92,7 @@ class InterfaceImplementor : IIncrementalGenerator
 			var parameterDeclarations2 = propertyDetails.Where(x => x.ctorInitRequired && !x.isConstructableWithoutArguments).Select(x => $"{x.type} {x.camelName}");
 			if (parameterDeclarations.Count() != parameterDeclarations2.Count())
 			{
-				source.AppendLine($"\n{ind}public {className}({String.Join(", ", parameterDeclarations2)}) \n{ind}{{");
+				source.AppendLine($"\n{ind}public {className}({String.Join(", ", parameterDeclarations2)})\n{ind}{{");
 				++ind;
 				foreach (var (name, type, camelName, _, _, isConstructableWithoutArguments) in propertyDetails.Where(x => x.ctorInitRequired))
 					source.AppendLine(isConstructableWithoutArguments ? $"{ind}{name} = new {type}();" : $"{ind}{name} = {camelName};");
@@ -118,10 +120,10 @@ class InterfaceImplementor : IIncrementalGenerator
 		}
 	}
 
-	struct Indent
+	class Indent
 	{
 		private Int32 count;
-		public override String ToString() => new String('\t', count);
+		public override String ToString() => new('\t', count);
 		public static Indent operator ++(Indent ind) { ind.count++; return ind; }
 		public static Indent operator --(Indent ind) { ind.count--; return ind; }
 	}
